@@ -8,7 +8,7 @@ Based on [Autodesk's official Clean Uninstall procedure](https://www.autodesk.co
 
 | Phase | What |
 |---|---|
-| 1 | Kills all Autodesk processes (named + **path-based wildcard kill**) & stops services |
+| 1 | **Auto-closes all Autodesk applications** — no need to close anything yourself: graceful close attempt → force-kill (named + **path-based wildcard kill**) → verifies none remain. Stops services too |
 | 1b | **Backs up registry keys** to `Desktop\Autodesk_Backup_<timestamp>\` (.reg files) |
 | 2 | Silently uninstalls every registered product — handles **ODIS** (2022+), classic MSI, and Identity Manager; loops up to 4 passes for dependency ordering |
 | 3 | Removes **Autodesk Genuine Service** (kills its protection markers first) and the **AdskLicensing** service, with `sc delete` + folder fallbacks |
