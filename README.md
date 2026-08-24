@@ -45,7 +45,7 @@ Reboot afterwards to finish the clean.
 
 ## ⚠️ Before you run it
 
-- Removes **ALL** Autodesk software — AutoCAD, Revit, Inventor, Maya, 3ds Max, Civil 3D, Navisworks, Fusion, Vault, InfraWorks, ReCap, DWG TrueView, Desktop Connector, Material Libraries and every other Autodesk-published product on the machine. There is no "keep one product" option.
+- **No need to uninstall anything yourself** — the script detects and removes ALL Autodesk software automatically: AutoCAD, Revit, Inventor, Maya, 3ds Max, Civil 3D, Navisworks, Fusion, Vault, InfraWorks, ReCap, DWG TrueView, Desktop Connector, Material Libraries and every other Autodesk-published product on the machine. There is no "keep one product" option.
 - **No need to close anything yourself** — the script automatically closes all running Autodesk applications (graceful close attempt, then force-kill, then verifies none remain). Unsaved work in open Autodesk apps will be lost.
 - Custom user data **will be permanently deleted**: CUI profiles, tool palettes, plot styles (CTB/STB), templates (DWT/DWT), Revit families, custom LISP routines, Desktop Connector local sync workspace (`%USERPROFILE%\DC`). Back these up first if you need them.
 - Your Autodesk licenses/sign-ins are removed — a future reinstall will ask you to sign in again.
