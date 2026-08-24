@@ -17,7 +17,23 @@ Based on [Autodesk's official Clean Uninstall procedure](https://www.autodesk.co
 | 5 | Deep registry clean: Autodesk keys (HKLM/HKCU/WOW6432Node), FLEXlm, COM CLSID/TypeLib deep scan, class keys (`DWGTrueView*`, `acadlt.*`, `adsk.idmgr`…), all 3 Uninstall trees, service keys, dead file associations |
 | 6 | Verifies nothing remains; full timestamped log to `%TEMP%` |
 
-## Usage
+## Quick Run (one line)
+
+Open **any** PowerShell (no admin needed — it self-elevates) and paste:
+
+```powershell
+irm https://raw.githubusercontent.com/thanhdtr/remove-autocad/master/Remove-AutoCAD.ps1 | iex
+```
+
+That's it — downloads the latest script from this repo, prompts UAC for admin, and runs. No cloning, no execution-policy changes.
+
+Shorter variant via jsDelivr CDN (same script, cached globally):
+
+```powershell
+irm https://cdn.jsdelivr.net/gh/thanhdtr/remove-autocad@master/Remove-AutoCAD.ps1 | iex
+```
+
+## Manual usage
 
 Right-click PowerShell → **Run as administrator**, then:
 
