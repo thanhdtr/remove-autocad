@@ -32,13 +32,39 @@ function Log($msg) {
     Add-Content -Path $Log -Value $line
 }
 
-Log "=== Phase 1: stop processes & services ==="
-# Named kills first...
-Get-Process | Where-Object { $_.Name -match '^(acad|AdskAccessCore|AdskIdentityManager|AdskLicensingService|AdSSO|FNPLicensingService|GenuineService|AutodeskAccess|AcQMod|senddmp|AdskAccessServiceHost|DesktopConnector|adappmgr)' } |
-    ForEach-Object { Log "Stopping process $($_.Name) (PID $($_.Id))"; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+Log "=== Phase 1: auto-close ALL Autodesk applications ==="
+# 1) Ask running Autodesk apps to close gracefully first (saves nothing, but lets them clean up)
+$autodeskProcs = {
+    Get-Process | Where-Object {
+        $_.Name -match '^(acad|AcadLT|accoreconsole|AdskAccessCore|AdskIdentityManager|AdskLicensingService|AdSSO|FNPLicensingService|GenuineService|AutodeskAccess|AdAppMgr|AdskAccessServiceHost|AcQMod|senddmp|DesktopConnector|AdskAccess|AdSSO|FileSyncAgent|AdWorker|autocad|revit|RevitWorker|3dsmax|maya|inventor|navisworks|navisworksroamer|trueview|dwgviewr|dwgtruview|ReCap|AdUnit|AdDownload|AdEula)'
+    }
+}
+& $autodeskProcs | ForEach-Object {
+    Log "Requesting graceful close: $($_.Name) (PID $($_.Id))"
+    $_.CloseMainWindow() | Out-Null
+}
+Start-Sleep -Seconds 5
+
+# 2) Force-kill anything still open - named patterns...
+Get-Process | Where-Object { $_.Name -match '^(acad|AcadLT|accoreconsole|AdskAccessCore|AdskIdentityManager|AdskLicensingService|AdSSO|FNPLicensingService|GenuineService|AutodeskAccess|AdAppMgr|AdskAccessServiceHost|AcQMod|senddmp|DesktopConnector|AdskAccess|FileSyncAgent|AdWorker|autocad|revit|RevitWorker|3dsmax|maya|inventor|navisworks|navisworksroamer|trueview|dwgviewr|dwgtruview|ReCap|AdUnit|AdDownload|AdEula)' } |
+    ForEach-Object { Log "Force-killing $($_.Name) (PID $($_.Id))"; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 # ...then wildcard kill: ANY process whose executable lives under an Autodesk path
-Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -match 'Autodesk|Autodesk Shared' } |
+Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -match 'Autodesk' } |
     ForEach-Object { Log "Path-kill: $($_.Name) (PID $($_.ProcessId)) $($_.ExecutablePath)"; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+# 3) Verify: wait until no Autodesk processes remain (up to ~30s)
+$deadline = (Get-Date).AddSeconds(30)
+do {
+    Start-Sleep -Seconds 3
+    $left = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -match 'Autodesk' })
+} while ($left.Count -gt 0 -and (Get-Date) -lt $deadline)
+if ($left.Count -gt 0) {
+    Log "WARNING: $($left.Count) Autodesk process(es) still alive after force-kill:"
+    $left | ForEach-Object { Log "  - $($_.Name) (PID $($_.ProcessId))" }
+    $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+} else {
+    Log "All Autodesk applications closed."
+}
 
 Log "=== Phase 1b: backup registry before deletion ==="
 $backupDir = "$env:USERPROFILE\Desktop\Autodesk_Backup_$(Get-Date -Format yyyyMMdd-HHmmss)"
