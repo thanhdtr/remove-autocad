@@ -62,7 +62,12 @@ function Get-AutodeskApps {
         'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
     )
     Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -match 'Autodesk|AutoCAD|AutoLISP|Genuine Service' } |
+        Where-Object {
+            # Publisher-based detection catches ALL products (Revit, Maya, 3ds Max,
+            # Inventor, Civil 3D...) even when their name lacks "Autodesk"
+            ($_.Publisher -match 'Autodesk') -or
+            ($_.DisplayName -match 'Autodesk|AutoCAD|AutoLISP|Genuine Service|Revit|Inventor|Maya|3ds Max|Civil 3D|Navisworks|Fusion|Vault|InfraWorks|ReCap|DWG TrueView|Desktop Connector|Material Library')
+        } |
         Select-Object DisplayName, Publisher, PSChildName, UninstallString -Unique
 }
 
@@ -257,7 +262,7 @@ $uninstallRoots = @(
 )
 Get-ChildItem $uninstallRoots -ErrorAction SilentlyContinue |
     ForEach-Object { Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue } |
-    Where-Object { $_.DisplayName -match 'Autodesk|AutoCAD' } |
+    Where-Object { ($_.Publisher -match 'Autodesk') -or ($_.DisplayName -match 'Autodesk|AutoCAD|Revit|Inventor|Maya|3ds Max|Civil 3D|Navisworks|Fusion|Vault|InfraWorks|ReCap|DWG TrueView|Desktop Connector') } |
     ForEach-Object {
         Log "Removing orphan uninstall entry: $($_.DisplayName)"
         Remove-Item $_.PSPath -Recurse -Force -ErrorAction SilentlyContinue

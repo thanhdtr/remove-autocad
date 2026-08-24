@@ -1,6 +1,6 @@
 # Remove-AutoCAD
 
-A single-file PowerShell script that completely removes **all AutoCAD / Autodesk software** from a Windows PC — products, licensing, Genuine Service, and every leftover trace.
+A single-file PowerShell script that completely removes **ALL Autodesk software** from a Windows PC — AutoCAD, Revit, Inventor, Maya, 3ds Max, Civil 3D, Navisworks, Fusion, Vault, DWG TrueView, Desktop Connector, Material Libraries, and more — plus licensing, Genuine Service, and every leftover trace.
 
 Based on [Autodesk's official Clean Uninstall procedure](https://www.autodesk.com/support/technical/article/caas/sfdcarticles/sfdcarticles/Clean-uninstall.html), hardened with techniques from community uninstallers.
 
