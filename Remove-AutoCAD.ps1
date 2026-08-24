@@ -1,4 +1,3 @@
-#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
   Remove ALL AutoCAD / Autodesk software from a Windows PC.
@@ -18,6 +17,15 @@
 #>
 
 $Log = "$env:TEMP\Remove-AutoCAD-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+
+# Admin check (replaces #Requires so the script works via irm | iex)
+$principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "This script requires Administrator privileges. Relaunching elevated..." -ForegroundColor Yellow
+    Start-Process powershell.exe -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/thanhdtr/remove-autocad/master/Remove-AutoCAD.ps1 | iex`""
+    exit
+}
+
 function Log($msg) {
     $line = "[{0}] {1}" -f (Get-Date -Format HH:mm:ss), $msg
     Write-Host $line
