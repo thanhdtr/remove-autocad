@@ -45,10 +45,14 @@ Reboot afterwards to finish the clean.
 
 ## ⚠️ Before you run it
 
-- Removes **ALL** Autodesk software, not just AutoCAD.
-- Custom user settings (CUI profiles, tool palettes, templates) live in the same AppData folders and **will be deleted** — back them up first if needed.
+- Removes **ALL** Autodesk software — AutoCAD, Revit, Inventor, Maya, 3ds Max, Civil 3D, Navisworks, Fusion, Vault, InfraWorks, ReCap, DWG TrueView, Desktop Connector, Material Libraries and every other Autodesk-published product on the machine. There is no "keep one product" option.
+- **Close all Autodesk applications first.** The script kills running Autodesk processes anyway, but unsaved work will be lost.
+- Custom user data **will be permanently deleted**: CUI profiles, tool palettes, plot styles (CTB/STB), templates (DWT/DWT), Revit families, custom LISP routines, Desktop Connector local sync workspace (`%USERPROFILE%\DC`). Back these up first if you need them.
+- Your Autodesk licenses/sign-ins are removed — a future reinstall will ask you to sign in again.
 - Does **not** delete the FlexNet Licensing Service (shared with Adobe products).
-- Registry keys are backed up to your Desktop before deletion.
+- Registry keys are automatically backed up to `Desktop\Autodesk_Backup_<timestamp>\` (.reg files) before deletion — double-click to restore if ever needed.
+- Antivirus may flag the script because it modifies the registry and stops services — it's plain-text PowerShell; read it before running.
+- Reboot after the script finishes to release any locked files.
 
 ## Requirements
 
