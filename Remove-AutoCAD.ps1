@@ -106,7 +106,7 @@ for ($round = 1; $round -le 4; $round++) {
         Log ("Uninstalling: " + $app.DisplayName)
 
         # ODIS-installed (2022+): must use Installer.exe, not msiexec
-        if ($app.UninstallString -match 'Installer\.exe' -or $app.PSChildName -match '^\{.*\}$' -and (Test-Path "C:\ProgramData\Autodesk\ODIS\metadata\$($app.PSChildName)")) {
+        if (($app.UninstallString -match 'Installer\.exe') -or (($app.PSChildName -match '^\{.*\}$') -and (Test-Path "C:\ProgramData\Autodesk\ODIS\metadata\$($app.PSChildName)"))) {
             $meta = "C:\ProgramData\Autodesk\ODIS\metadata\$($app.PSChildName)"
             $pkgXml = Get-ChildItem $meta -Filter *.xml -ErrorAction SilentlyContinue |
                       Where-Object Name -match '^pkg\.|^bundleManifest\.xml' | Select-Object -First 1
@@ -119,9 +119,33 @@ for ($round = 1; $round -le 4; $round++) {
             }
         }
 
-        # Autodesk Identity Manager
-        if ($app.DisplayName -match 'Identity') {
-            Start-Process "C:\Program Files\Autodesk\AdskIdentityManager\uninstall.exe" -ArgumentList "--mode unattended" -Wait -ErrorAction SilentlyContinue
+        # Autodesk Identity Manager / Autodesk Access (rebranded; same component)
+        if ($app.DisplayName -match 'Identity|Access') {
+            $idMgrExe = $null
+            # Resolve path from the registry UninstallString first
+            if ($app.UninstallString -match '(".*?")') {
+                $idMgrExe = $Matches[1].Trim('"')
+            }
+            if (-not $idMgrExe -and $app.UninstallString -match '^(\S+)') {
+                $idMgrExe = $Matches[1]
+            }
+            # Fallback: known installation paths
+            if (-not $idMgrExe -or -not (Test-Path $idMgrExe)) {
+                foreach ($p in @(
+                    'C:\Program Files\Autodesk\AdskIdentityManager\uninstall.exe',
+                    'C:\Program Files (x86)\Autodesk\AdskIdentityManager\uninstall.exe',
+                    "$env:ProgramFiles\Autodesk\AdskIdentityManager\uninstall.exe",
+                    "$env:LOCALAPPDATA\Autodesk\AdskIdentityManager\uninstall.exe"
+                )) {
+                    if (Test-Path $p) { $idMgrExe = $p; break }
+                }
+            }
+            if ($idMgrExe -and (Test-Path $idMgrExe)) {
+                Log "Uninstalling Identity Manager / Access: $idMgrExe"
+                Start-Process $idMgrExe -ArgumentList "--mode unattended" -Wait -ErrorAction SilentlyContinue
+            } else {
+                Log "WARNING: Cannot find Autodesk Identity Manager uninstaller (tried registry + common paths); cleaning up folder/registry in later phases"
+            }
             continue
         }
 
