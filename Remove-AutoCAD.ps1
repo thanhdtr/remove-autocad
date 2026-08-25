@@ -369,9 +369,11 @@ Get-ChildItem $uninstallRoots -ErrorAction SilentlyContinue |
         Remove-Item $_.PSPath -Recurse -Force -ErrorAction SilentlyContinue
     }
 # Autodesk Windows services remnants (licensing/genuine service already sc-deleted in Phase 3;
-# this sweeps any other Autodesk-named service registrations)
+# this sweeps any other Autodesk-named service registrations).
+# NOTE: FlexNet keys intentionally preserved -- FlexNet Licensing Service is shared with
+# Adobe products and must survive an Autodesk uninstall (see README).
 Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue |
-    Where-Object { $_.PSChildName -match 'Adsk|Autodesk|FlexNet' } |
+    Where-Object { $_.PSChildName -match '^(Adsk|Autodesk|GenuineService)' } |
     ForEach-Object {
         Log "Removing service key: $($_.PSChildName)"
         Remove-Item $_.PSPath -Recurse -Force -ErrorAction SilentlyContinue
@@ -418,11 +420,112 @@ foreach ($tlb in @('HKLM:\SOFTWARE\Classes\TypeLib', 'HKLM:\SOFTWARE\Classes\Wow
     }
 }
 
-Log "=== Phase 6: verification ==="
+Log "=== Phase 6: leftover audit ==="
+# Re-scan every category the script touches and report anything that remains.
+# Locked files usually release after a reboot -> reboot, then run this script once more.
+$auditIssues = 0
+
+# 1) Add/Remove Programs entries
 $leftover = @(Get-AutodeskApps)
-if ($leftover.Count -eq 0) { Log "SUCCESS: no Autodesk/AutoCAD entries remain in Add/Remove Programs." }
-else { Log "WARNING: still registered:"; $leftover | ForEach-Object { Log "  - $($_.DisplayName)" } }
-foreach ($f in $folders) { if (Test-Path $f) { Log "Folder remains (in use?): $f" } }
+if ($leftover.Count -eq 0) { Log "[OK] Add/Remove Programs: no Autodesk entries remain" }
+else {
+    $auditIssues++
+    Log "[LEFTOVER] Add/Remove Programs: $($leftover.Count) entry(ies) still registered:"
+    $leftover | ForEach-Object { Log "    - $($_.DisplayName)" }
+}
+
+# 2) Leftover folders
+$badFolders = @($folders | Where-Object { Test-Path $_ })
+if ($badFolders.Count -eq 0) { Log "[OK] Folders: all Autodesk folders removed" }
+else {
+    $auditIssues++
+    Log "[LEFTOVER] Folders: $($badFolders.Count) still present (likely in use):"
+    $badFolders | ForEach-Object { Log "    - $_" }
+}
+
+# 3) Running processes
+$procs = @(Get-Process | Where-Object {
+    ($_.Name -match '^(acad|AcadLT|accoreconsole|AdskAccessCore|AdskIdentityManager|AdskLicensingService|AdSSO|GenuineService|AutodeskAccess|AdAppMgr|AdskAccessServiceHost|DesktopConnector|FileSyncAgent|revit|3dsmax|maya|inventor|navisworks|trueview|dwgviewr|ReCap)') -or
+    ($_.Path -match 'Autodesk')
+} | Select-Object -Unique Id)
+if ($procs.Count -eq 0) { Log "[OK] Processes: no Autodesk processes running" }
+else {
+    $auditIssues++
+    Log "[LEFTOVER] Processes: $($procs.Count) still running:"
+    $procs | ForEach-Object { Log "    - $($_.Name) (PID $($_.Id))" }
+}
+
+# 4) Windows services (FlexNet intentionally excluded -- shared with Adobe, see README)
+$svcs = @(Get-Service | Where-Object { $_.Name -match '^(Adsk|Autodesk|GenuineService)' -or ($_.DisplayName -match 'Autodesk') })
+if ($svcs.Count -eq 0) { Log "[OK] Services: no Autodesk services registered" }
+else {
+    $auditIssues++
+    Log "[LEFTOVER] Services: $($svcs.Count) still registered (removed after reboot):"
+    $svcs | ForEach-Object { Log "    - $($_.Name) ($($_.Status))" }
+}
+
+# 5) Core registry keys
+$regLeft = @(
+    'HKLM:\SOFTWARE\Autodesk',
+    'HKLM:\SOFTWARE\WOW6432Node\Autodesk',
+    'HKLM:\SOFTWARE\FLEXlm License Manager',
+    'HKCU:\SOFTWARE\Autodesk'
+) | Where-Object { Test-Path $_ }
+if ($regLeft.Count -eq 0) { Log "[OK] Registry: core Autodesk keys removed" }
+else {
+    $auditIssues++
+    Log "[LEFTOVER] Registry: $($regLeft.Count) key(s) still present:"
+    $regLeft | ForEach-Object { Log "    - $_" }
+}
+
+# 6) Scheduled tasks
+$tasks = @(Get-ScheduledTask | Where-Object { $_.TaskName -match 'Autodesk|Adsk|AutoCAD|DesktopConnector' })
+if ($tasks.Count -eq 0) { Log "[OK] Scheduled tasks: none remain" }
+else {
+    $auditIssues++
+    Log "[LEFTOVER] Scheduled tasks: $($tasks.Count) still registered:"
+    $tasks | ForEach-Object { Log "    - $($_.TaskName)" }
+}
+
+# 7) Firewall rules
+$fwr = @(Get-NetFirewallRule | Where-Object { $_.DisplayName -match 'Autodesk|AutoCAD|Adsk' })
+if ($fwr.Count -eq 0) { Log "[OK] Firewall rules: none remain" }
+else {
+    $auditIssues++
+    Log "[LEFTOVER] Firewall rules: $($fwr.Count) still present:"
+    $fwr | ForEach-Object { Log "    - $($_.DisplayName)" }
+}
+
+# 8) Shortcuts pointing at Autodesk/AutoCAD
+$scPaths = @(
+    "$env:PUBLIC\Desktop", "$env:USERPROFILE\Desktop",
+    "$env:ProgramData\Microsoft\Windows\Start Menu\Programs",
+    "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
+)
+$sh = New-Object -ComObject WScript.Shell
+$badShortcuts = @(Get-ChildItem $scPaths -Filter *.lnk -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $sh.CreateShortcut($_.FullName).TargetPath -match 'Autodesk|AutoCAD' })
+if ($badShortcuts.Count -eq 0) { Log "[OK] Shortcuts: none point at Autodesk anymore" }
+else {
+    $auditIssues++
+    Log "[LEFTOVER] Shortcuts: $($badShortcuts.Count) still reference Autodesk:"
+    $badShortcuts | ForEach-Object { Log "    - $($_.FullName)" }
+}
+
+# Verdict
+if ($auditIssues -eq 0) {
+    Log ""
+    Log "=========================================="
+    Log "  RESULT: CLEAN -- no Autodesk traces found"
+    Log "=========================================="
+} else {
+    Log ""
+    Log "======================================================="
+    Log "  RESULT: $auditIssues area(s) still have leftovers (see [LEFTOVER] lines above)"
+    Log "  Files locked by the OS are released after a reboot --"
+    Log "  REBOOT now, then run this script ONE more time to sweep them."
+    Log "======================================================="
+}
 
 Log "Done. Full log: $Log"
 Log ">>> REBOOT the PC to finish the clean uninstall <<<"
