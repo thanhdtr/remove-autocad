@@ -27,12 +27,6 @@ irm https://raw.githubusercontent.com/thanhdtr/remove-autocad/master/Remove-Auto
 
 That's it — downloads the latest script from this repo, prompts UAC for admin, and runs. No cloning, no execution-policy changes.
 
-Shorter variant via jsDelivr CDN (same script, cached globally):
-
-```powershell
-irm https://cdn.jsdelivr.net/gh/thanhdtr/remove-autocad@master/Remove-AutoCAD.ps1 | iex
-```
-
 ## Manual usage
 
 Right-click PowerShell → **Run as administrator**, then:
