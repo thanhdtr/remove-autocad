@@ -225,10 +225,12 @@ foreach ($gs in $gsvcs) {
     Start-Process msiexec.exe -ArgumentList "/x $gs /qn" -Wait -ErrorAction SilentlyContinue
 }
 # Licensing Desktop Service (official step: run its bundled Uninstall.exe)
+$manualLicRemoval = $false
 if (Test-Path 'C:\Program Files (x86)\Common Files\Autodesk Shared\AdskLicensing\uninstall.exe') {
     Start-Process 'C:\Program Files (x86)\Common Files\Autodesk Shared\AdskLicensing\uninstall.exe' -Verb RunAs -Wait -ErrorAction SilentlyContinue
 }
 else {
+    $manualLicRemoval = $true
     Log "AdskLicensing uninstaller not found - removing licensing manually"
 }
 # Fallbacks in case either MSI/uninstaller failed:
@@ -254,6 +256,26 @@ foreach ($f in @(
     if (Test-Path $f) {
         Log "Fallback removal: $f"
         Remove-Item $f -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Manual-licensing-removal verification: confirm the fallbacks actually cleaned
+# everything before telling the user it's done.
+if ($manualLicRemoval) {
+    $licLeft = @()
+    # a) service still registered?
+    if (Get-Service -Name 'AdskLicensingService' -ErrorAction SilentlyContinue) { $licLeft += "service 'AdskLicensingService' still registered" }
+    # b) licensing folder still on disk?
+    if (Test-Path 'C:\Program Files (x86)\Common Files\Autodesk Shared\AdskLicensing') { $licLeft += "folder 'C:\Program Files (x86)\Common Files\Autodesk Shared\AdskLicensing' remains" }
+    # c) process still running?
+    if (Get-Process -Name 'AdskLicensingService' -ErrorAction SilentlyContinue) { $licLeft += "process 'AdskLicensingService.exe' still running" }
+
+    if ($licLeft.Count -eq 0) {
+        Log "[OK] Manual licensing removal COMPLETE - no AdskLicensing service, folder, or process remains"
+    } else {
+        Log "[PENDING] Manual licensing removal INCOMPLETE - $($licLeft.Count) item(s) remain:"
+        $licLeft | ForEach-Object { Log "    - $_" }
+        Log "    These are typically locked by the OS and clear after REBOOT; Phase 6 audit re-checks this."
     }
 }
 
