@@ -121,13 +121,20 @@ function Get-AutodeskApps {
     )
     Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
         Where-Object {
+            # Exclude non-Autodesk vendors entirely (Adobe, Microsoft, etc.)
+            $_.DisplayName -notmatch '^Adobe|^Microsoft' -and (
             # Publisher-based detection catches ALL products (Revit, Maya, 3ds Max,
             # Inventor, Civil 3D...) even when their name lacks "Autodesk"
             ($_.Publisher -match 'Autodesk') -or
-            ($_.DisplayName -match 'Autodesk|AutoCAD|AutoLISP|Genuine Service|Revit|Inventor|Maya|3ds Max|Civil 3D|Navisworks|Fusion|Vault|InfraWorks|ReCap|DWG TrueView|Desktop Connector|Material Library')
-        } |
+            ($_.DisplayName -match 'Autodesk|AutoCAD|AutoLISP|Autodesk Genuine Service|Revit|Inventor|Maya|3ds Max|Civil 3D|Navisworks|Fusion|Vault|InfraWorks|ReCap|DWG TrueView|Desktop Connector|Material Library')
+        ) } |
         Select-Object DisplayName, Publisher, PSChildName, UninstallString -Unique
 }
+
+# Track EXE-based uninstallers already attempted to prevent repeated popup windows
+# on subsequent passes (some EXE uninstallers don't support silent flags and show
+# an interactive wizard -- re-launching them pops a new window each pass).
+$exeAttempted = @{}
 
 for ($round = 1; $round -le 4; $round++) {
     $apps = @(Get-AutodeskApps)
@@ -186,11 +193,20 @@ for ($round = 1; $round -le 4; $round++) {
             Start-Process msiexec.exe -ArgumentList "/x $($app.PSChildName) /qn /norestart" -Wait
             Start-Sleep -Seconds 3
         }
-        elseif ($app.QuietUninstallString) {
-            Start-Process cmd.exe -ArgumentList "/c $($app.QuietUninstallString)" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
-        }
-        elseif ($app.UninstallString) {
-            Start-Process cmd.exe -ArgumentList "/c $($app.UninstallString) /qn /S" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+        elseif ($app.QuietUninstallString -or $app.UninstallString) {
+            # EXE-based uninstaller -- some show interactive wizards that don't
+            # support silent flags. Don't re-launch on later passes so we don't
+            # pop repeated windows (the entry will be cleaned up in Phase 5).
+            if (-not $exeAttempted.ContainsKey($app.PSChildName)) {
+                $exeAttempted[$app.PSChildName] = $true
+                if ($app.QuietUninstallString) {
+                    Start-Process cmd.exe -ArgumentList "/c $($app.QuietUninstallString)" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+                } else {
+                    Start-Process cmd.exe -ArgumentList "/c $($app.UninstallString) /qn /S" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+                }
+            } else {
+                Log "Skipping $($app.DisplayName) -- EXE uninstaller already attempted in prior pass"
+            }
         }
     }
 }
@@ -217,7 +233,9 @@ else {
 }
 # Fallbacks in case either MSI/uninstaller failed:
 # 1) stop & delete the Windows services outright
-foreach ($svc in @('AdskLicensingService', 'FlexNet Licensing Service', 'GenuineService')) {
+# Note: FlexNet Licensing Service intentionally NOT deleted -- shared with Adobe
+# products per README. AdskLicensingService and GenuineService are Autodesk-only.
+foreach ($svc in @('AdskLicensingService', 'GenuineService')) {
     $s = Get-Service -Name $svc -ErrorAction SilentlyContinue
     if ($s) {
         Log "Removing service: $svc"
