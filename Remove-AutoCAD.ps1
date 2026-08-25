@@ -46,11 +46,27 @@ $autodeskProcs = {
 Start-Sleep -Seconds 5
 
 # 2) Force-kill anything still open - named patterns...
+# NOTE: some Autodesk "processes" are Windows services hosted in their own exe
+# (e.g. AdskLicensingService.exe). Killing the host exe with Stop-Process looks
+# like a crash to the Service Control Manager, which immediately restarts the
+# service under a new PID - the process then appears "unkillable". Services
+# must be stopped cleanly through the SCM instead.
+function Stop-AdskPid {
+    param([int]$TargetPid, [string]$ProcName)
+    $svcs = @(Get-CimInstance Win32_Service -Filter "ProcessId=$TargetPid" -ErrorAction SilentlyContinue)
+    foreach ($s in $svcs) {
+        Log "Stopping hosting service '$($s.Name)' ($ProcName, PID $TargetPid) via Service Control Manager"
+        Stop-Service -Name $s.Name -Force -ErrorAction SilentlyContinue
+    }
+    if ($svcs.Count -eq 0) {
+        Stop-Process -Id $TargetPid -Force -ErrorAction SilentlyContinue
+    }
+}
 Get-Process | Where-Object { $_.Name -match '^(acad|AcadLT|accoreconsole|AdskAccessCore|AdskIdentityManager|AdskLicensingService|AdSSO|FNPLicensingService|GenuineService|AutodeskAccess|AdAppMgr|AdskAccessServiceHost|AcQMod|senddmp|DesktopConnector|AdskAccess|FileSyncAgent|AdWorker|autocad|revit|RevitWorker|3dsmax|maya|inventor|navisworks|navisworksroamer|trueview|dwgviewr|dwgtruview|ReCap|AdUnit|AdDownload|AdEula)' } |
-    ForEach-Object { Log "Force-killing $($_.Name) (PID $($_.Id))"; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    ForEach-Object { Log "Force-killing $($_.Name) (PID $($_.Id))"; Stop-AdskPid -TargetPid $_.Id -ProcName $_.Name }
 # ...then wildcard kill: ANY process whose executable lives under an Autodesk path
 Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -match 'Autodesk' } |
-    ForEach-Object { Log "Path-kill: $($_.Name) (PID $($_.ProcessId)) $($_.ExecutablePath)"; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    ForEach-Object { Log "Path-kill: $($_.Name) (PID $($_.ProcessId)) $($_.ExecutablePath)"; Stop-AdskPid -TargetPid $_.ProcessId -ProcName $_.Name }
 
 # 3) Verify: wait until no Autodesk processes remain (up to ~30s)
 $deadline = (Get-Date).AddSeconds(30)
@@ -59,9 +75,25 @@ do {
     $left = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -match 'Autodesk' })
 } while ($left.Count -gt 0 -and (Get-Date) -lt $deadline)
 if ($left.Count -gt 0) {
-    Log "WARNING: $($left.Count) Autodesk process(es) still alive after force-kill:"
+    # Survivors: escalate - disable their services (so SCM cannot resurrect them),
+    # stop via SCM, then taskkill the process tree as a final measure.
+    foreach ($p in $left) {
+        Log "$($p.Name) (PID $($p.ProcessId)) survived initial kill - escalating"
+        $svcs = @(Get-CimInstance Win32_Service -Filter "ProcessId=$($p.ProcessId)" -ErrorAction SilentlyContinue)
+        foreach ($s in $svcs) {
+            Log "Disabling & stopping service '$($s.Name)'"
+            Set-Service -Name $s.Name -StartupType Disabled -ErrorAction SilentlyContinue
+            Stop-Service -Name $s.Name -Force -ErrorAction SilentlyContinue
+            Start-Process sc.exe -ArgumentList "stop `"$($s.Name)`"" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+        }
+        Start-Process taskkill.exe -ArgumentList "/PID $($p.ProcessId) /T /F" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Seconds 3
+    $left = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -match 'Autodesk' })
+}
+if ($left.Count -gt 0) {
+    Log "WARNING: $($left.Count) Autodesk process(es) could not be terminated (will retry after reboot):"
     $left | ForEach-Object { Log "  - $($_.Name) (PID $($_.ProcessId))" }
-    $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 } else {
     Log "All Autodesk applications closed."
 }
@@ -165,8 +197,9 @@ for ($round = 1; $round -le 4; $round++) {
 
 Log "=== Phase 3: remove Autodesk Genuine Service & licensing ==="
 # Kill Genuine Service / licensing processes first - they lock their own folders & resist uninstall
+# (Stop-AdskPid routes service-hosted exes through the SCM so they don't get resurrected)
 Get-Process | Where-Object { $_.Name -match 'GenuineService|AdskLicensingService|FNPLicensingService|AdskAccessServiceHost' } |
-    ForEach-Object { Log "Killing $($_.Name) (PID $($_.Id))"; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    ForEach-Object { Log "Killing $($_.Name) (PID $($_.Id))"; Stop-AdskPid -TargetPid $_.Id -ProcName $_.Name }
 
 # Genuine Service protects its own uninstall; delete its license marker first
 Remove-Item "$env:ALLUSERSPROFILE\Autodesk\Adlm\ProductInformation.pit" -Force -ErrorAction SilentlyContinue
